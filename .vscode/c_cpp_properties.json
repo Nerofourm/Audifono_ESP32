@@ -1,0 +1,45 @@
+{
+    "configurations": [
+        {
+            "name": "ESP-IDF",
+            "compilerPath": "/home/espectro/.espressif/tools/xtensa-esp32-elf/esp-2021r2-patch5-8.4.0/xtensa-esp32-elf/bin/xtensa-esp32-elf-gcc",
+            "includePath": [
+                "${config:idf.espIdfPath}/components/**",
+                "${config:idf.espIdfPathWin}/components/**",
+                "${config:idf.espAdfPath}/components/**",
+                "${config:idf.espAdfPathWin}/components/**",
+                "${workspaceFolder}/**"
+            ],
+            "browse": {
+                "path": [
+                    "${config:idf.espIdfPath}/components",
+                    "${config:idf.espIdfPathWin}/components",
+                    "${config:idf.espAdfPath}/components/**",
+                    "${config:idf.espAdfPathWin}/components/**",
+                    "${workspaceFolder}"
+                ],
+                "limitSymbolsToIncludedHeaders": false
+            }
+        },
+        {
+            "name": "ESP-IDF fake",
+            "includePath": [
+                "/home/espectro/esp/Audifono2/**"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerPathInCppPropertiesJson": "/usr/bin/gcc",
+            "mergeConfigurations": false,
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/**"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ],
+    "version": 4
+}
