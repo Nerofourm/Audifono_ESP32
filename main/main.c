@@ -11,7 +11,7 @@
 #include "audio_element.h"
 #include "algorithm_stream.h"
 #include "i2s_stream.h"
-
+#include "audio_event_iface.h"
 
 static const char *TAG = "AUDIFONO2";
 
@@ -33,8 +33,15 @@ static const char *TAG = "AUDIFONO2";
 
 void app_main(void)
 {
+    audio_pipeline_handle_t pipeline;
+    audio_element_handle_t i2s_stream_reader,i2s_stream_writer; //writer puerto 0
+
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set(TAG, ESP_LOG_INFO);
+
+    esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
+    esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
+
 
     // Setup audio codec
     ESP_LOGI(TAG, "[1.0] Start codec chip");
@@ -43,31 +50,33 @@ void app_main(void)
     audio_board_handle_t board_handle = audio_board_init();
     audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
 
+    board_handle->adc_hal = audio_board_adc_init();
+    
+
     ////// FUNCTIOOOOOOOOON
-
-    audio_pipeline_handle_t pipeline = NULL;
-    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
-
     ESP_LOGI(TAG, "[1.1] Initialize recorder pipeline");
+    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
     pipeline = audio_pipeline_init(&pipeline_cfg);
     mem_assert(pipeline);
 
+
+
     ESP_LOGI(TAG, "[1.2] Create audio elements for pipeline");
-    audio_element_handle_t i2s_stream_reader;
+    
     i2s_stream_cfg_t i2s_read_cfg = I2S_STREAM_CFG_DEFAULT();
     i2s_read_cfg.type = AUDIO_STREAM_READER; // PORT 1 LECTOR
     i2s_read_cfg.i2s_port = 1;
     i2s_stream_reader = i2s_stream_init(&i2s_read_cfg);
-    mem_assert(i2s_stream_reader);
-    audio_element_set_music_info(i2s_stream_reader, 48000, 2, 16);
+    //mem_assert(i2s_stream_reader);
+    //audio_element_set_music_info(i2s_stream_reader, 48000, 2, 16);
 
-    audio_element_handle_t i2s_stream_writer; //PUERTO 0
+
     i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
     i2s_cfg.type = AUDIO_STREAM_WRITER;
     i2s_read_cfg.i2s_port = 0;
     i2s_stream_writer = i2s_stream_init(&i2s_cfg);
-    mem_assert(i2s_stream_writer);
-    audio_element_set_music_info(i2s_stream_writer, 48000, 2, 16);
+    //mem_assert(i2s_stream_writer);
+    //audio_element_set_music_info(i2s_stream_writer, 48000, 2, 16);
 
 
     ESP_LOGI(TAG, "[1.3] Register audio elements to  pipeline");

@@ -20,7 +20,8 @@
         "i2s.h": "c",
         "i2s_hal.h": "c",
         "fstream": "c",
-        "audio_idf_version.h": "c"
+        "audio_idf_version.h": "c",
+        "algorithm_stream.h": "c"
     },
     "idf.port": "/dev/ttyUSB0",
     "idf.flashType": "UART"
