@@ -84,6 +84,8 @@ static int i2s_read_cb(audio_element_handle_t el, char *buf, int len, TickType_t
 
 void app_main(void)
 {
+    audio_pipeline_handle_t pipeline;
+
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set(TAG, ESP_LOG_INFO);
 
@@ -94,26 +96,35 @@ void app_main(void)
     // Initialize SD Card peripheral
     //audio_board_sdcard_init(set, SD_MODE_1_LINE);
 
-    ESP_LOGI(TAG, "[2.0] Start codec chip");
+    ESP_LOGI(TAG, "[1.0] Start codec chip");
+
+    /*
+    INICIALIZAMOS EL CODEC ES8311
+    */
     i2s_driver_init(I2S_NUM_0, I2S_CHANNELS, I2S_BITS);
 
-    #if (CONFIG_ESP_LYRAT_MINI_V1_1_BOARD || CONFIG_ESP32_S3_KORVO2_V3_BOARD)
+    /*
+    CONFIGURAMOS EL CODEC ES8311
+    */
     audio_board_handle_t board_handle = (audio_board_handle_t) audio_calloc(1, sizeof(struct audio_board_handle));
     audio_hal_codec_config_t audio_codec_cfg = AUDIO_CODEC_DEFAULT_CONFIG();
     audio_codec_cfg.i2s_iface.samples = AUDIO_HAL_08K_SAMPLES; // aqui le baja de 48k a 8k.....
     board_handle->audio_hal = audio_hal_init(&audio_codec_cfg, &AUDIO_CODEC_ES8311_DEFAULT_HANDLE);
-    board_handle->adc_hal = audio_board_adc_init();
-    #else
-        audio_board_handle_t board_handle = audio_board_init();
-    #endif
 
-    #if CONFIG_ESP_LYRAT_MINI_V1_1_BOARD
+    /*
+    INICIALIZAMOS EL ADC
+    */
+    board_handle->adc_hal = audio_board_adc_init();
+
+    /*
+    INICIALIZAMOS EL I2S DRIVER PARA EL ADC ES7243
+    */
     i2s_driver_init(I2S_NUM_1, I2S_CHANNELS, I2S_BITS);
-    #endif
+
 
     ESP_LOGI(TAG, "[3.0] Create audio pipeline_rec for recording");
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
-    audio_pipeline_handle_t pipeline_rec = audio_pipeline_init(&pipeline_cfg);
+    pipeline = audio_pipeline_init(&pipeline_cfg);
     mem_assert(pipeline_rec); //para  asegurar que hay espacio para el pipeline
 
     ESP_LOGI(TAG, "[3.1] Create algorithm stream for aec");
@@ -145,9 +156,19 @@ void app_main(void)
     audio_element_set_input_timeout(element_algo, portMAX_DELAY);
     //#define portMAX_DELAY ( TickType_t ) 0xffffffffUL
 
-    ESP_LOGI(TAG, "[3.2] Create wav encoder to encode wav format");
-    wav_encoder_cfg_t wav_cfg = DEFAULT_WAV_ENCODER_CONFIG();
-    audio_element_handle_t wav_encoder = wav_encoder_init(&wav_cfg);
+    ESP_LOGI(TAG, "[4] Start codec chip");
+    //??????????????????????????????
+    audio_board_handle_t board_handle = audio_board_init();
+    /////////'''''''''''''''''''
+
+    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_LINE_IN, AUDIO_HAL_CTRL_START);
+
+ESP_LOGI(TAG, "[ 5 ] Create audio pipeline for playback");
+    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
+    pipeline = audio_pipeline_init(&pipeline_cfg);
+
+
+
 
 
 
