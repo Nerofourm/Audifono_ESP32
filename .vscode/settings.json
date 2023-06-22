@@ -21,5 +21,7 @@
         "i2s_hal.h": "c",
         "fstream": "c",
         "audio_idf_version.h": "c"
-    }
+    },
+    "idf.port": "/dev/ttyUSB0",
+    "idf.flashType": "UART"
 }
