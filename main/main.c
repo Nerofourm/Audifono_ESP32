@@ -11,6 +11,8 @@
 #include "audio_pipeline.h"
 #include "audio_element.h"
 #include "algorithm_stream.h"
+#include "i2s_stream.h"
+
 
 static const char *TAG = "AUDIFONO2";
 
@@ -85,6 +87,7 @@ static int i2s_read_cb(audio_element_handle_t el, char *buf, int len, TickType_t
 void app_main(void)
 {
     audio_pipeline_handle_t pipeline;
+    audio_element_handle_t i2s_stream_writer;
 
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set(TAG, ESP_LOG_INFO);
@@ -93,18 +96,16 @@ void app_main(void)
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
-    // Initialize SD Card peripheral
-    //audio_board_sdcard_init(set, SD_MODE_1_LINE);
 
     ESP_LOGI(TAG, "[1.0] Start codec chip");
 
     /*
-    INICIALIZAMOS EL CODEC ES8311
+    INICIALIZAMOS EL DRIVER QUE CONECTA EL CODEC ES8311 CON EL ESP32
     */
     i2s_driver_init(I2S_NUM_0, I2S_CHANNELS, I2S_BITS);
 
     /*
-    CONFIGURAMOS EL CODEC ES8311
+    CONFIGURAMOS E INICIALIZA EL CODEC ES8311
     */
     audio_board_handle_t board_handle = (audio_board_handle_t) audio_calloc(1, sizeof(struct audio_board_handle));
     audio_hal_codec_config_t audio_codec_cfg = AUDIO_CODEC_DEFAULT_CONFIG();
@@ -117,16 +118,22 @@ void app_main(void)
     board_handle->adc_hal = audio_board_adc_init();
 
     /*
-    INICIALIZAMOS EL I2S DRIVER PARA EL ADC ES7243
+    INICIALIZAMOS EL DRIVER I2S QUE CONECTA EL ADC ES7243 CON EL ESP32
     */
     i2s_driver_init(I2S_NUM_1, I2S_CHANNELS, I2S_BITS);
 
+/////////////////////////////////////////////
+/////////////////////////////////////////////
 
-    ESP_LOGI(TAG, "[3.0] Create audio pipeline_rec for recording");
+    /*
+    INICIALIZAMOS LA PIPELINE
+    */
+    ESP_LOGI(TAG, "[3.0] Create audio pipeline for playback");
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
     pipeline = audio_pipeline_init(&pipeline_cfg);
-    mem_assert(pipeline_rec); //para  asegurar que hay espacio para el pipeline
+    mem_assert(pipeline); //para  asegurar que hay espacio para el pipeline OJO PASSTHRU NO LO TIENE
 
+    
     ESP_LOGI(TAG, "[3.1] Create algorithm stream for aec");
     algorithm_stream_cfg_t algo_config = ALGORITHM_STREAM_CFG_DEFAULT();
 
@@ -146,7 +153,9 @@ void app_main(void)
 #if (CONFIG_ESP_LYRAT_MINI_V1_1_BOARD || CONFIG_ESP32_S3_KORVO2_V3_BOARD)
     algo_config.swap_ch = true; /*!< Swap left and right channels */
 #endif
-
+/*
+CONFIGURACIÓN DEL PRIMER ELEMENTO DEL PIPELINE
+*/
     algo_config.sample_rate = I2S_SAMPLE_RATE;  /*!< The sampling rate of the input PCM (in Hz) */
     algo_config.out_rb_size = ESP_RING_BUFFER_SIZE; /*!< Size of output ringbuffer */
     audio_element_handle_t element_algo = algo_stream_init(&algo_config); // Crea un elemento del tipo audio_element_handle_t con la función algo_stream_init con la configuración que tiene en su interior
@@ -156,25 +165,86 @@ void app_main(void)
     audio_element_set_input_timeout(element_algo, portMAX_DELAY);
     //#define portMAX_DELAY ( TickType_t ) 0xffffffffUL
 
-    ESP_LOGI(TAG, "[4] Start codec chip");
-    //??????????????????????????????
-    audio_board_handle_t board_handle = audio_board_init();
-    /////////'''''''''''''''''''
 
-    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_LINE_IN, AUDIO_HAL_CTRL_START);
+    /*
+    DEFINIMOS EL 2DO ELEMENTO DE LA PIPELINE
+    */
 
-ESP_LOGI(TAG, "[ 5 ] Create audio pipeline for playback");
-    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
-    pipeline = audio_pipeline_init(&pipeline_cfg);
+    ESP_LOGI(TAG, "[3.1] Create i2s stream to write data to codec chip");
+    i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
+    i2s_cfg.type = AUDIO_STREAM_WRITER;
+    i2s_stream_writer = i2s_stream_init(&i2s_cfg);
 
+    /*
+    REGISTRAMOS LOS ELEMENTOS A LA PIPELINE
+    */
+    ESP_LOGI(TAG, "[3.3] Register all elements to audio pipeline");
+    audio_pipeline_register(pipeline, element_algo, "algo");
+    audio_pipeline_register(pipeline, i2s_stream_writer, "i2s_write");
 
+    /*
+    UNIR LOS ELEMENTOS
+    */
+    ESP_LOGI(TAG, "[3.5] Link it together [codec_chip]-->algorithm-->i2s_stream_writer-->[codec_chip]");
+    const char *link_tag[2] = {"algo", "i2s_write"};
+    audio_pipeline_link(pipeline, &link_tag[0], 2);
 
+    /*
+    ESTABLECEMOS AL MIRON
+    */
+    ESP_LOGI(TAG, "[ 4 ] Set up  event listener");
+    audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
+    audio_event_iface_handle_t evt = audio_event_iface_init(&evt_cfg);
 
+    ESP_LOGI(TAG, "[4.1] Listening event from all elements of pipeline");
+    audio_pipeline_set_listener(pipeline, evt);
+    
+    /*
+    INICIAMOS LA PIPELINE
+    */
 
+    ESP_LOGI(TAG, "[ 5 ] Start audio_pipeline");
+    audio_pipeline_run(pipeline);
 
+    ESP_LOGI(TAG, "[ 6 ] Listen for all pipeline events");
+    while (1) {
+        audio_event_iface_msg_t msg;
+        esp_err_t ret = audio_event_iface_listen(evt, &msg, portMAX_DELAY);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "[ * ] Event interface error : %d", ret);
+            continue;
+        }
+        /* Stop when the last pipeline element (i2s_stream_writer in this case) receives stop event */
+        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void *) i2s_stream_writer
+            && msg.cmd == AEL_MSG_CMD_REPORT_STATUS
+            && (((int)msg.data == AEL_STATUS_STATE_STOPPED) || ((int)msg.data == AEL_STATUS_STATE_FINISHED))) {
+            ESP_LOGW(TAG, "[ * ] Stop event received");
+            break;
+        }
+    }
 
+    ESP_LOGI(TAG, "[ 7 ] Stop audio_pipeline");
+    audio_pipeline_stop(pipeline);
+    audio_pipeline_wait_for_stop(pipeline);
+    audio_pipeline_terminate(pipeline);
 
+    audio_pipeline_unregister(pipeline, element_algo);
+    audio_pipeline_unregister(pipeline, i2s_stream_writer);
 
+    /* Terminate the pipeline before removing the listener */
+    audio_pipeline_remove_listener(pipeline);
 
+    /* Stop all periph before removing the listener */
+    esp_periph_set_stop_all(set);
+    audio_event_iface_remove_listener(esp_periph_set_get_event_iface(set), evt);
 
+    /* Make sure audio_pipeline_remove_listener & audio_event_iface_remove_listener are called before destroying event_iface */
+    audio_event_iface_destroy(evt);
+
+    esp_periph_set_destroy(set);
+
+    /* Release all resources */
+    audio_pipeline_deinit(pipeline);
+    audio_element_deinit(element_algo);
+    audio_element_deinit(i2s_stream_writer);
 }
