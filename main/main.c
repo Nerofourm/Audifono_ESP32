@@ -12,49 +12,79 @@
 #include "algorithm_stream.h"
 #include "i2s_stream.h"
 #include "audio_event_iface.h"
+#include "driver/i2s.h"
+
 
 static const char *TAG = "AUDIFONO2";
 
-/* Debug original input data for AEC feature*/
-// #define DEBUG_ALGO_INPUT
-
 #define I2S_SAMPLE_RATE     8000
-#if CONFIG_ESP_LYRAT_MINI_V1_1_BOARD
 #define I2S_CHANNELS        I2S_CHANNEL_FMT_RIGHT_LEFT
-#else
-#define I2S_CHANNELS        I2S_CHANNEL_FMT_ONLY_LEFT
-#endif
 #define I2S_BITS            CODEC_ADC_BITS_PER_SAMPLE
 
-/* The AEC internal buffering mechanism requires that the recording signal
-   is delayed by around 0 - 10 ms compared to the corresponding reference (playback) signal. */
-#define DEFAULT_REF_DELAY_MS    0
-#define ESP_RING_BUFFER_SIZE    256
+static esp_err_t i2s_driver_init(i2s_port_t port, i2s_channel_fmt_t channels, i2s_bits_per_sample_t bits)
+{
+    i2s_config_t i2s_cfg = {
+        .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX,
+        .sample_rate = I2S_SAMPLE_RATE,
+        .bits_per_sample = bits,
+        .channel_format = channels,
+        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+        .tx_desc_auto_clear = true,
+        .dma_buf_count = 8, //i2s_stream tiene 3
+        .dma_buf_len = 64, //i2s_stream tiene 300
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL2 | ESP_INTR_FLAG_IRAM,
+    };
+
+    i2s_driver_install(port, &i2s_cfg, 0, NULL); // port= I2S_NUM_0 o I2S_NUM_1
+    board_i2s_pin_t board_i2s_pin = {0};
+    i2s_pin_config_t i2s_pin_cfg;
+    get_i2s_pins(port, &board_i2s_pin);
+    i2s_pin_cfg.bck_io_num = board_i2s_pin.bck_io_num;
+    i2s_pin_cfg.ws_io_num = board_i2s_pin.ws_io_num;
+    i2s_pin_cfg.data_out_num = board_i2s_pin.data_out_num;
+    i2s_pin_cfg.data_in_num = board_i2s_pin.data_in_num;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 4, 0)
+    i2s_pin_cfg.mck_io_num = board_i2s_pin.mck_io_num;
+#endif
+    i2s_set_pin(port, &i2s_pin_cfg);
+
+    return ESP_OK;
+}
 
 void app_main(void)
 {
-    audio_pipeline_handle_t pipeline;
-    audio_element_handle_t i2s_stream_reader,i2s_stream_writer; //writer puerto 0
-
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set(TAG, ESP_LOG_INFO);
 
+    audio_pipeline_handle_t pipeline; //creo la pipeline en blanco
+    audio_element_handle_t i2s_stream_reader, i2s_stream_writer; //writer puerto 0
+    //creo los elementos en blanco  
+
+    // Initialize peripherals management
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
-
-    // Setup audio codec
+    // Setup audio codec para speaker I2S0
     ESP_LOGI(TAG, "[1.0] Start codec chip");
+    i2s_driver_init(I2S_NUM_0, I2S_CHANNELS, I2S_BITS); // salida a audifonos CODEC
 
-    // audio_board_handle_t board_handle = (audio_board_handle_t) audio_calloc(1, sizeof(struct audio_board_handle));
-    audio_board_handle_t board_handle = audio_board_init();
-    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
-
+    audio_board_handle_t board_handle = (audio_board_handle_t) audio_calloc(1, sizeof(struct audio_board_handle));
+    audio_hal_codec_config_t audio_codec_cfg = AUDIO_CODEC_DEFAULT_CONFIG();
+    audio_codec_cfg.i2s_iface.samples = AUDIO_HAL_08K_SAMPLES;
+    
+    board_handle->audio_hal = audio_hal_init(&audio_codec_cfg, &AUDIO_CODEC_ES8311_DEFAULT_HANDLE);
     board_handle->adc_hal = audio_board_adc_init();
+    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
+    audio_hal_set_volume(board_handle->audio_hal, 60);
+
+    // Setup ADC para micrófono 
+
+    ESP_LOGI(TAG, "[1.1] Start codec chip");i2s_driver_init(I2S_NUM_1, I2S_CHANNELS, I2S_BITS);
+
     
 
     ////// FUNCTIOOOOOOOOON
-    ESP_LOGI(TAG, "[1.1] Initialize recorder pipeline");
+    ESP_LOGI(TAG, "[1.2] Initialize recorder pipeline");
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
     pipeline = audio_pipeline_init(&pipeline_cfg);
     mem_assert(pipeline);
